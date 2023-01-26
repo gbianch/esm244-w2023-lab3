@@ -1,0 +1,124 @@
+---
+title: 'Lab Week 3: Binomial Logistic Regression'
+author: "Grace Bianchi"
+date: "2023-01-26"
+output: html_document
+---
+
+```{r setup, include = TRUE, message = FALSE, warning = FALSE, echo = TRUE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+
+library(tidyverse)
+library(tidymodels)
+library(palmerpenguins)
+library(GGally)
+library(jtools)
+library(AICcmodavg)
+```
+
+# Psuedocode
+
+* Examine our data(plots, tables, summary stats)
+* Identify a question
+* Wrangle the data
+* Identify same candidate models
+* Select among candidate models using AIC/BIS
+* Select among canditate models using K-fold cross validation
+* Select among candidate models using area under Reciever Operating Characteristic Curve
+
+```{r}
+GGally::ggpairs(penguins %>% select(species, bill_length_mm:sex), 
+                aes(color = species))
+
+```
+
+
+```{r}
+class(penguins$species)
+levels(penguins$species)
+
+adelie_chinstrap <- penguins %>% 
+  filter(species %in% c("Adelie", "Chinstrap")) %>% 
+  mutate(species = fct_drop(species)) %>% 
+  select(-year) %>% 
+  drop_na()
+
+levels(adelie_chinstrap$species)
+```
+# Let's check out the trends across variables
+
+```{r}
+ggplot(data = adelie_chinstrap, aes(x = body_mass_g, y = flipper_length_mm)) +
+  geom_point(aes(color = sex, shape = island)) +
+  facet_wrap(~ species)
+
+ggplot(data = adelie_chinstrap, aes(x = body_mass_g, y = bill_length_mm)) + 
+  geom_point(aes(color = sex, shape = island)) +
+  facet_wrap(~ species)
+```
+
+
+# Let's do some binary logistic regression!
+
+```{r}
+f1 <- species ~ body_mass_g + flipper_length_mm + sex
+
+ad_chin_blrl <- glm(formula = f1, data = adelie_chinstrap,
+                    family = "binomial")
+
+ad_chin_blrl
+summary(ad_chin_blrl)
+
+blrl_tidy <- tidy(ad_chin_blrl)
+```
+
+
+```{r}
+ggplot(data = adelie_chinstrap, aes(x = species, y = body_mass_g)) +
+  geom_jitter(aes(color = sex))
+
+```
+
+```{r}
+blrl_fitted <- ad_chin_blrl %>% 
+  broom::augment(type.predict = "response")
+
+ggplot(data = blrl_fitted, aes(x = flipper_length_mm, y = .fitted)) +
+  geom_point(aes(color = sex, shape = species)) +
+  geom_smooth(aes(color = sex), se = FALSE) +
+  labs(x = "Flipper Length (mm)", 
+       y = "Probability of outcome(Chinstrap)")
+```
+
+# Predictions for new values with predict()
+
+```{r}
+ex1 <- predict(ad_chin_blrl, 
+               data.frame(sex = "female",
+                          body_mass_g = 3410,
+                          flipper_length_mm = 192),
+               type = 'response')
+
+
+new_df <- data.frame(
+  sex = c("male", "female", "female"),
+  body_mass_g = c(3298, 4100, 3600),
+  flipper_length_mm = c(212, 175, 180)
+)
+
+ex2 <- predict(ad_chin_blrl, new_df, type = 'response')
+
+```
+
+## Create a new binary logistic model
+```{r}
+f2 <- species ~ bill_length_mm + body_mass_g 
+
+ad_chin_blrl <- glm(formula = f2, data = adelie_chinstrap, family = 'binomial')
+```
+
+```{r}
+
+```
+
+ 
