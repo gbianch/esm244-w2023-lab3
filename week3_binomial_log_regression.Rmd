@@ -112,13 +112,156 @@ ex2 <- predict(ad_chin_blrl, new_df, type = 'response')
 
 ## Create a new binary logistic model
 ```{r}
-f2 <- species ~ bill_length_mm + body_mass_g 
+f2 <- species ~ bill_length_mm + body_mass_g
 
-ad_chin_blrl <- glm(formula = f2, data = adelie_chinstrap, family = 'binomial')
+
+ad_chin_blr2 <- glm(formula = f2,
+                    data = adelie_chinstrap,
+                    family = "binomial")
 ```
+
+## Model Selection
 
 ```{r}
+AICcmodavg::aictab(list(ad_chin_blrl, ad_chin_blr2))
+AICcmodavg::bictab(list(ad_chin_blrl, ad_chin_blr2))
+```
+10-fold Cross Validation
+
+```{r}
+set.seed(123)
+
+n_folds <- 10
+fold_vec <- rep(1:n_folds, length.out = nrow(adelie_chinstrap))
+
+ad_chin_kfold <- adelie_chinstrap %>% 
+  mutate(fold = sample(fold_vec, size = n(), replace = FALSE))
 
 ```
 
+purrr::map()
+
+```{r}
+x_vec <- 1:10
+thing <- purrr::map(.x = x_vec, ### a sequence (vector, list)
+                    .f = sqrt) ### a function
+thing ## for loop is kinda slow, this function runs more efficiently
+
+my_funct <- function(x, y, z) {
+  return((x - y)^z)
+}
+
+thing2 <- purrr::map(.x = x_vec,
+                     .f = my_funct,
+                     y = 2, z = 3)
+thing2
+
+```
  
+```{r}
+pred_acc <- function(x, y) {
+  accurate <- ifelse(x ==y, 1, 0)
+  
+  return(mean(accurate, na.rm = TRUE))
+}
+
+calc_fold <- function(i, fold_df, f) {
+  kfold_test <- fold_df %>% 
+    filter(fold == i)
+  kfold_train <- fold_df %>% 
+    filter(fold != i)
+  
+  kfold_blr <- glm(f, data = kfold_train, family = 'binomial')
+  
+  kfold_pred <- kfold_test %>% 
+    mutate(blr = predict(kfold_blr, kfold_test, type = 'response'),
+           pred = ifelse(blr > 0.50, "Chinstrap", "Adelie"))
+  
+  kfold_accuracy <- kfold_pred %>% 
+    summarize(blr_acc = pred_acc(species, pred))
+  
+  return(kfold_accuracy)
+}
+```
+ 
+```{r}
+n_folds <- 10
+
+results1_purrr_df <- purrr::map(.x = 1:n_folds, # sequence of fold numbers
+                                .f = calc_fold, # function
+                                fold_df = ad_chin_kfold, # additional argument to calc_fold()
+                                f = f1) %>%              # additional argument to calc_fold()
+  bind_rows() %>%
+  mutate(mdl = 'f1')
+
+results2_purrr_df <- purrr::map(.x = 1:n_folds,
+                               .f = calc_fold,
+                               fold_df = ad_chin_kfold,
+                               f = f2)
+  
+results_purrr_df <- bind_rows(results1_purrr_df, results2_purrr_df) %>% 
+  group_by(mdl) %>% 
+  summarize(mean_acc = mean(blr_acc))
+```
+
+
+# Tidymodels version
+
+```{r}
+### define model type
+blr_model <- logistic_reg() %>% 
+  set_engine("glm")
+
+### set a basic regression
+blr_tidyfit_f1 <-  blr_model %>% 
+  fit(f1, data = adelie_chinstrap)
+blr_tidyfit_f2 <- blr_model %>% 
+  fit(f2, data = adelie_chinstrap)
+
+blr_tidyfit_f1 %>% 
+  tidy()
+blr_tidyfit_f2 %>% 
+  glance()
+```
+
+## Tidy kfold Cross Validation
+
+```{r}
+set.seed(345)
+
+tidy_folds <- vfold_cv(adelie_chinstrap, v =10)
+
+### use workflow to bundle model and formula
+blr_tidy_wf1 <- workflow() %>% 
+  add_model(blr_model) %>% 
+  add_formula(f1)
+
+blr_tidy_cv_f1 <- blr_tidy_wf1 %>% 
+  fit_resamples(tidy_folds)
+
+collect_metrics(blr_tidy_cv_f1)
+
+### use workflow to bundle model and formula
+blr_tidy_wf2 <- workflow() %>% 
+  add_model(blr_model) %>% 
+  add_formula(f2)
+
+blr_tidy_cv_f2 <- blr_tidy_wf2 %>% 
+  fit_resamples(tidy_folds)
+
+collect_metrics(blr_tidy_cv_f2)
+
+```
+## Area under the curve
+
+```{r}
+blr_f1_pred <- adelie_chinstrap %>% 
+  mutate(predict(blr_tidyfit_f1, .)) %>% 
+  mutate(predict(blr_tidyfit_f2, . , type = 'prob'))
+
+blr_f1_pred %>%
+  roc_curve(truth = species, .pred_Adelie) %>%
+  autoplot()
+
+```
+
